@@ -485,7 +485,7 @@ const server = http.createServer((req, res) => {
   }
 
   // ── SSE endpoint: client opens persistent connection ────────────────────────
-  if (url.pathname === "/sse" && req.method === "GET") {
+  if (url.pathname === "/sse") { if (req.method === "POST") { let body = ""; req.on("data", c => body += c); req.on("end", () => { let msg; try { msg = body ? JSON.parse(body) : {method:"ping",id:0}; } catch(e) { res.writeHead(400); res.end(); return; } const response = handleMcpMessage(msg); res.writeHead(200, {"Content-Type":"application/json"}); res.end(JSON.stringify(response || {})); }); return; } if (req.method === "GET") {
     const sessionId = crypto.randomUUID();
     res.writeHead(200, {
       "Content-Type": "text/event-stream",

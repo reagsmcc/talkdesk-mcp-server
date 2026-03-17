@@ -485,7 +485,7 @@ const server = http.createServer((req, res) => {
   }
 
   // ── SSE endpoint: client opens persistent connection ────────────────────────
-  if (url.pathname === "/sse") { if (req.method !== "GET" && req.method !== "POST") { res.writeHead(405); res.end(); return; } if (req.method === "GET") {
+  if (url.pathname === "/sse" && req.method === "GET") {
     const sessionId = crypto.randomUUID();
     res.writeHead(200, {
       "Content-Type": "text/event-stream",

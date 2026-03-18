@@ -484,24 +484,42 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // ── SSE endpoint: client opens persistent connection ────────────────────────
-  if (url.pathname === "/sse") { if (req.method === "POST") { let body = ""; req.on("data", c => body += c); req.on("end", () => { let msg; try { msg = body ? JSON.parse(body) : {method:"ping",id:0}; } catch(e) { res.writeHead(400); res.end(); return; } const response = handleMcpMessage(msg); res.writeHead(200, {"Content-Type":"application/json"}); res.end(JSON.stringify(response || {})); }); return; } if (req.method === "GET") {
-    const sessionId = crypto.randomUUID();
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
+  // ── SSE endpoint: GET opens persistent stream, POST handles inline JSON-RPC ──
+  if (url.pathname === "/sse") {
 
-    // Send the endpoint URL for the client to POST messages to
-    res.write(`event: endpoint\ndata: /messages?sessionId=${sessionId}\n\n`);
+    // GET: open SSE stream
+    if (req.method === "GET") {
+      const sessionId = crypto.randomUUID();
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      });
+      res.write(`event: endpoint\ndata: /messages?sessionId=${sessionId}\n\n`);
+      sessions.set(sessionId, res);
+      req.on("close", () => sessions.delete(sessionId));
+      return;
+    }
 
-    sessions.set(sessionId, res);
-
-    req.on("close", () => {
-      sessions.delete(sessionId);
-    });
-    return;
+    // POST: Talkdesk may POST JSON-RPC directly to /sse (connection test)
+    if (req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        let msg;
+        try {
+          msg = body ? JSON.parse(body) : { method: "ping", id: 0 };
+        } catch {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid JSON" }));
+          return;
+        }
+        const response = handleMcpMessage(msg);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(response || { jsonrpc: "2.0", result: {} }));
+      });
+      return;
+    }
   }
 
   // ── Message endpoint: client POSTs JSON-RPC here ───────────────────────────
@@ -523,12 +541,17 @@ const server = http.createServer((req, res) => {
 
       const response = handleMcpMessage(msg);
 
-      // Return 202 immediately
+      // If no live SSE session, respond inline (handles sync clients / connection tests)
+      if (!sseRes || sseRes.writableEnded) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(response || { jsonrpc: "2.0", result: {} }));
+        return;
+      }
+
+      // Return 202 immediately and push response through SSE
       res.writeHead(202);
       res.end();
-
-      // Send response back through SSE if we have a live session
-      if (response && sseRes && !sseRes.writableEnded) {
+      if (response) {
         sseRes.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
       }
     });

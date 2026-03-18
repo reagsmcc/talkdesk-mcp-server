@@ -40,6 +40,10 @@ const TOOLS = [
 ];
 
 function callTool(name, args) {
+  if (args.orderId) args.order_id=args.orderId;
+  if (args.customerId) args.customer_id=args.customerId;
+  if (args.newStatus) args.new_status=args.newStatus;
+
   console.log("TOOL CALL args:", JSON.stringify(args)); if (name === "lookup_order") {
     const order = ORDERS[args.order_id];
     if (!order) return { success: false, error: `Order ${args.order_id} not found` };
